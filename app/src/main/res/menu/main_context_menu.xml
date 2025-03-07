@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/reload"
+        android:title="@string/reload"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/upload"
+        android:title="@string/upload"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_refresh"
+        android:title="@string/refresh_data"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/take_photo"
+        android:title="@string/take_photo"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_settings"
+        android:title="@string/action_settings"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_set_backend"
+        android:title="@string/qr_code"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_map"
+        android:title="@string/my_location"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_logout"
+        android:title="@string/logout"
+        app:showAsAction="never" />
+</menu>
