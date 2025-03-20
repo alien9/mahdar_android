@@ -20,8 +20,8 @@
     <string name="frontend" translatable="false">file:///android_asset/driver-angular</string>
     <string name="refresh_data">Refresh</string>
     <!--    <string name="backend" translatable="false">http://192.168.1.101:8000</string>-->
-    <!--string name="backend" translatable="false">https://dotdv.mpwt.gov.la/?language=en</string-->
-    <string name="backend" translatable="false">https://airso-dev.unescwa.org/?language=en</string>
+    <string name="backend" translatable="false">https://dotdv.mpwt.gov.la/?language=en</string>
+    <!--string name="backend" translatable="false">https://airso-dev.unescwa.org/?language=en</string-->
     <string name="uploading">Uploading Data</string>
     <string name="cancel">Cancel</string>
     <string name="back">Back</string>

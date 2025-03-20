@@ -48,7 +48,6 @@ import java.io.IOException
 import java.util.*
 import java.util.zip.ZipFile
 
-
 private const val FCR = 1
 class MainActivity : AppCompatActivity() {
     private var locator: String?="Fused"
@@ -495,6 +494,19 @@ $('input[name=position]').click();
                     }
 
                 }
+                true
+            }
+            R.id.action_testmap->{
+       //         val manager: GeoPackageManager = new GeoPackageManager(context)
+
+
+
+// Import database
+     //           val imported: Boolean = manager.importGeoPackage(geoPackageFile)
+
+
+// Available databases
+   //             val databases: List<String> = manager.databases()
                 true
             }
             else -> super.onOptionsItemSelected(item)
