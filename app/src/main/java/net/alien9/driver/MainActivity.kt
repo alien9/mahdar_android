@@ -39,11 +39,13 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import mil.nga.geopackage.GeoPackageFactory
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.FileOutputStream
 import java.io.IOException
 import java.util.*
 import java.util.zip.ZipFile
@@ -326,7 +328,6 @@ $('input[name=position]').click();
     @SuppressLint("MissingPermission")
     @RequiresApi(Build.VERSION_CODES.N)
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        // Handle item selection
         return when (item.itemId) {
             R.id.reload -> {
                 val w= findViewById<WebView>(R.id.webview)
@@ -497,6 +498,26 @@ $('input[name=position]').click();
                 }
                 true
             }
+            R.id.action_read_gpkg->{
+                this.copyDataBase()
+
+
+
+
+
+                val manager = GeoPackageFactory.getManager(this@MainActivity)
+val geoFile:File=File(filesDir, "roads.gpkg")
+
+                val imported: Boolean = manager.importGeoPackage(geoFile)
+
+
+// Available databases
+                val databases = manager.databases()
+
+
+// Open database
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -660,5 +681,21 @@ $('input[name=position]').click();
         fun setState(s: String?){
             this@MainActivity.state=s
         }
+    }
+    @Throws(IOException::class)
+    private fun copyDataBase() {
+
+        val myOutput = openFileOutput("roads.gpkg", Context.MODE_PRIVATE)
+        val myInput = this.assets.open("lebanon-osm-roads.gpkg")
+
+        val buffer = ByteArray(1024)
+        var length: Int = myInput.read(buffer)
+        while ((length) > 0) {
+            myOutput.write(buffer, 0, length)
+            length = myInput.read(buffer)
+        }
+        myInput.close()
+        myOutput.flush()
+        myOutput.close()
     }
 }

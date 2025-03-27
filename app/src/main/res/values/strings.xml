@@ -21,7 +21,7 @@
     <string name="refresh_data">Refresh</string>
     <!--    <string name="backend" translatable="false">http://192.168.1.101:8000</string>-->
     <!--string name="backend" translatable="false">https://dotdv.mpwt.gov.la/?language=en</string-->
-    <string name="backend" translatable="false">https://airso-dev.unescwa.org/?language=en</string>
+    <string name="backend" translatable="false">https://airso-dev.unescwa.org/login?language=ar</string>
     <string name="uploading">Uploading Data</string>
     <string name="cancel">Cancel</string>
     <string name="back">Back</string>
@@ -29,6 +29,7 @@
     <string name="cleanmup">Cleanup</string>
     <string name="qr_code">QR Code</string>
     <string name="my_location">Location</string>
+    <string name="test_gpkg">Testar GeoPackage</string>
     <string-array name="location_datasets">
         <item value="Fused">Fused</item>
         <item value="GPS">GPS</item>

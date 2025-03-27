@@ -32,5 +32,8 @@
     <item
         android:id="@+id/action_logout"
         android:title="@string/logout"
-        app:showAsAction="never" />
+        app:showAsAction="never" /> <item
+    android:id="@+id/action_read_gpkg"
+    android:title="@string/test_gpkg"
+    app:showAsAction="never" />
 </menu>
