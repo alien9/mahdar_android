@@ -16,6 +16,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        mavenLocal()
+        maven { setUrl("https://maven.aliyun.com/repository/central") }
+
     }
 }
 

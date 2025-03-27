@@ -1,6 +1,7 @@
 [versions]
 agp = "8.5.0"
 barcodeScanning = "17.3.0"
+geopackageAndroid = "6.7.4"
 kotlin = "1.9.0"
 coreKtx = "1.13.1"
 junit = "4.13.2"
@@ -21,6 +22,7 @@ zxingAndroidEmbedded = "4.1.0"
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 barcode-scanning = { module = "com.google.mlkit:barcode-scanning", version.ref = "barcodeScanning" }
+geopackage-android = { module = "mil.nga.geopackage.map:geopackage-android", version.ref = "geopackageAndroid" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
