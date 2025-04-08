@@ -1,6 +1,7 @@
 package net.alien9.driver
 
 import android.Manifest
+import android.R.id.input
 import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Context
@@ -31,24 +32,34 @@ import androidx.appcompat.widget.Toolbar
 import androidx.core.app.ActivityCompat
 import androidx.core.content.FileProvider
 import androidx.webkit.WebViewAssetLoader
+import com.android.volley.DefaultRetryPolicy
 import com.android.volley.Request
 import com.android.volley.Response
 import com.android.volley.Response.Listener
+import com.fasterxml.jackson.databind.JsonNode
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import mil.nga.geopackage.BoundingBox
 import mil.nga.geopackage.GeoPackageFactory
+import mil.nga.geopackage.features.index.FeatureIndexManager
+import mil.nga.geopackage.features.index.FeatureIndexType
+import mil.nga.sf.MultiLineString
+import mil.nga.sf.MultiPolygon
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.util.*
 import java.util.zip.ZipFile
+import kotlin.collections.ArrayList
 
 
 private const val FCR = 1
@@ -57,7 +68,7 @@ class MainActivity : AppCompatActivity() {
     private var POSITION: Int=333
     private lateinit var dataset: JSONArray
     private var currentRecordIndex: Int = 0
-    private lateinit var token: String
+    private var token: String=null.toString()
     private lateinit var photoURI: Uri
     private var media_uri: Uri?=null
     private var basepath: File? = null
@@ -96,7 +107,7 @@ class MainActivity : AppCompatActivity() {
         var loadingFinished = true
         var redirect = false
         val toolbar: Toolbar = findViewById(R.id.my_toolbar)
-        toolbar.setTitle(R.string.application_name)
+        toolbar.setTitle(R.string.app_name)
         setSupportActionBar(toolbar)
 
         val mWebview: WebView = findViewById(R.id.webview)
@@ -122,6 +133,7 @@ class MainActivity : AppCompatActivity() {
             .build()
         var sharedPref: SharedPreferences = this.getPreferences(Context.MODE_PRIVATE)
         val b = sharedPref.getString("backend", getString(R.string.backend) ).toString()
+        mWebview.addJavascriptInterface(MyJavascriptInterface(context), "android")
         mWebview.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(webView:WebView, filePathCallback:ValueCallback<Array<Uri>>, fileChooserParams:FileChooserParams):Boolean {
                 Intent(MediaStore.ACTION_IMAGE_CAPTURE).also { takePictureIntent ->
@@ -289,9 +301,16 @@ class MainActivity : AppCompatActivity() {
         }
 
     }
-
-    override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
+    private fun getToken():String{
         val w= findViewById<WebView>(R.id.webview)
+        w.evaluateJavascript("(function(){const c=document.cookie.match(/AuthService.token=([^;]+);/); if(c) return c.pop();})();"){ s->
+            token=s.replace("\"","")
+        }
+        return token
+    }
+    override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
+        val token=getToken()
+        val w=findViewById<WebView>(R.id.webview)
         w.evaluateJavascript("(function(){return $('#state').val()})();") { s ->
             val state=s.replace("\"", "")
             menu?.findItem(R.id.take_photo)?.isVisible = false //state == "input"
@@ -300,8 +319,8 @@ class MainActivity : AppCompatActivity() {
             menu?.findItem(R.id.action_map)?.isVisible = state == "input" || state == "locate"
             menu?.findItem(R.id.action_logout)?.isVisible = true
             menu?.findItem(R.id.upload)?.isVisible = state == "list"
-            menu?.findItem(R.id.action_logout)?.isVisible = state != "login"
-
+            menu?.findItem(R.id.action_logout)?.isVisible = state != "login" && token != null
+            menu?.findItem(R.id.action_update_map)?.isVisible = token != null
         }
         return super.onPrepareOptionsMenu(menu)
     }
@@ -499,7 +518,119 @@ $('input[name=position]').click();
                 }
                 true
             }
+
+            R.id.action_update_bounds->{
+                (findViewById<View>(R.id.webview)).visibility = GONE
+                (findViewById<View>(R.id.progressBar)).visibility = VISIBLE
+                val queue = Bowser.getInstance(this.applicationContext).requestQueue
+                val sharedPref = this.getPreferences(Context.MODE_PRIVATE)
+                backend = getBackend()
+                val token=getToken()
+                val url = backend.toString().replace("\\?.*$".toRegex(),"")+"api/boundaries/"
+                val context=this
+                val listener=Response.Listener<JSONObject> { j->
+                    if(j.getJSONArray("results").length()>0){
+                        File(context.filesDir,"boundaries.json").printWriter().use { out ->
+                            out.println(j.toString())
+                        }
+                        for(i in 0 until j.getJSONArray("results").length()){
+                            val bound=j.getJSONArray("results").getJSONObject(i)
+                            val uuid=j.getJSONArray("results").getJSONObject(i).getString("uuid")
+                            val ru=backend.toString().replace("\\?.*$".toRegex(),"")+"api/boundaries/${uuid}/?format=gpkg"
+                            val isvr = InputStreamVolleyRequest(Request.Method.GET, ru, Listener<ByteArray> { b->
+                                val f=File(context.filesDir, "boundaries_${uuid}.gpkg")
+                                val output = BufferedOutputStream(FileOutputStream(f))
+                                output.write(b)
+                                output.flush()
+                                output.close()
+                                if(i>=j.getJSONArray("results").length()-1) {
+                                    (findViewById<View>(R.id.webview)).visibility = VISIBLE
+                                    (findViewById<View>(R.id.progressBar)).visibility = GONE
+                                    Toast.makeText(context, "Download completed", Toast.LENGTH_LONG)
+                                        .show()
+                                }
+                            }, errorListener, HashMap())
+                            isvr.setToken(token)
+                            isvr.setRetryPolicy(
+                                DefaultRetryPolicy(
+                                    400000,
+                                    DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
+                                    DefaultRetryPolicy.DEFAULT_BACKOFF_MULT)
+                            );
+                            queue.add(isvr)
+
+
+                        }
+                    }
+                }
+                val jsonObjectRequest = DriverRequest<JSONArray>(
+                    Request.Method.GET, url, null.toString(),
+                    errorListener, listener
+                )
+                jsonObjectRequest.setToken(token)
+                queue.add(jsonObjectRequest)
+                true
+
+            }
+            R.id.action_update_map->{
+                (findViewById<View>(R.id.webview)).visibility = GONE
+                (findViewById<View>(R.id.progressBar)).visibility = VISIBLE
+                val queue = Bowser.getInstance(this.applicationContext).requestQueue
+                val sharedPref = this.getPreferences(Context.MODE_PRIVATE)
+                backend = getBackend()
+                val token=getToken()
+                val url = backend.toString().replace("\\?.*$".toRegex(),"")+"api/roadmaps/"
+                val context=this
+
+                val listener=Response.Listener<JSONObject> { j->
+                    Log.d("********************************", j.toString())
+                    if(j.getJSONArray("result").length()>0){
+                        val ru=backend.toString().replace("\\?.*$".toRegex(),"")+"api/roadmaps/${j.getJSONArray("result").getJSONObject(0).getString("uuid")}/?format=gpkg"
+
+                        val isvr = InputStreamVolleyRequest(Request.Method.GET, ru, Listener<ByteArray> { b->
+                            val f=File(context.filesDir, "roads.gpkg")
+                            val output = BufferedOutputStream(FileOutputStream(f))
+                            output.write(b)
+                            output.flush()
+
+                            output.close()
+                            (findViewById<View>(R.id.webview)).visibility = VISIBLE
+                            (findViewById<View>(R.id.progressBar)).visibility = GONE
+                            Toast.makeText(context, "Download completed", Toast.LENGTH_LONG).show()
+
+
+                        }, errorListener, HashMap())
+                        isvr.setToken(token)
+                        isvr.setRetryPolicy(
+                            DefaultRetryPolicy(
+                                400000,
+                                DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
+                                DefaultRetryPolicy.DEFAULT_BACKOFF_MULT)
+                        );
+                        queue.add(isvr)
+                    }
+                }
+
+                val jsonObjectRequest = DriverRequest<JSONArray>(
+                    Request.Method.GET, url, null.toString(),
+                    errorListener, listener
+                )
+                jsonObjectRequest.setToken(token)
+                queue.add(jsonObjectRequest)
+                true
+            }
             else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+
+    private fun saveToFile(inputStream: InputStream, outputFilePath: String) {
+        try {
+            FileOutputStream(File(outputFilePath)).use { outputStream ->
+                inputStream.copyTo(outputStream)
+            }
+        } catch (e: IOException) {
+            e.printStackTrace()
         }
     }
     private suspend fun <T> withZipFromUri(
@@ -534,7 +665,7 @@ $('input[name=position]').click();
             .setBarcodeFormats(
                 Barcode.FORMAT_QR_CODE,
                 Barcode.FORMAT_AZTEC)
-        .build()
+            .build()
 
         val scanner = GmsBarcodeScanning.getClient(this,options)
         scanner.startScan()
@@ -552,7 +683,29 @@ $('input[name=position]').click();
                 Log.w("DRIVER","Failure")
             }
     }
-
+    val errorListener=Response.ErrorListener {
+        if(it.networkResponse==null){
+            Toast.makeText(this, it.toString(), Toast.LENGTH_LONG).show()
+        }else {
+            val mess = JSONObject(String(it.networkResponse.data))
+            if (mess.has("data")) {
+                Toast.makeText(this, mess.getString("data"), Toast.LENGTH_LONG).show()
+            } else {
+                if (mess.has("schema")) {
+                    Toast.makeText(this, mess.optJSONArray("schema").join(""), Toast.LENGTH_LONG)
+                        .show()
+                } else {
+                    if (mess.has("detail")) {
+                        Toast.makeText(this, mess.optString("detail"), Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(this, it.toString(), Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        (findViewById<View>(R.id.webview)).visibility = VISIBLE
+        (findViewById<View>(R.id.progressBar)).visibility = GONE
+    }
     private fun upload() {
         if(currentRecordIndex>=dataset.length()) {
             (findViewById<View>(R.id.webview)).visibility = VISIBLE
@@ -564,8 +717,8 @@ $('input[name=position]').click();
         (findViewById<View>(R.id.progressBar)).visibility = VISIBLE
         val queue = Bowser.getInstance(this.applicationContext).requestQueue
         val sharedPref = this.getPreferences(Context.MODE_PRIVATE)
-        backend = sharedPref.getString("backend", getString(R.string.backend))
-        val url = "${backend}/api/records/"
+        backend = getBackend()
+        val url = backend.toString().replace("/\\?.*$".toRegex(),"")+"api/records/"
         val listener= Listener<JSONObject> { it ->
             dataset.getJSONObject(currentRecordIndex).put("uploaded",true)
             currentRecordIndex++
@@ -585,24 +738,7 @@ $('input[name=position]').click();
 
 
         }
-        val errorListener=Response.ErrorListener {
-            val mess=JSONObject(String(it.networkResponse.data))
-            if(mess.has("data")){
-                Toast.makeText(this, mess.getString("data"), Toast.LENGTH_LONG).show()
-            }else {
-                if(mess.has("schema")){
-                    Toast.makeText(this, mess.optJSONArray("schema").join(""), Toast.LENGTH_LONG).show()
-                }else {
-                    if(mess.has("detail")){
-                        Toast.makeText(this, mess.optString("detail"), Toast.LENGTH_LONG).show()
-                    }else {
-                        Toast.makeText(this, it.toString(), Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-            (findViewById<View>(R.id.webview)).visibility = VISIBLE
-            (findViewById<View>(R.id.progressBar)).visibility = GONE
-        }
+
         if(!jo.optBoolean("uploaded", false)) {
             val jsonObjectRequest = DriverRequest<JSONArray>(
                 Request.Method.POST, url, jo.getJSONObject("record").toString(),
@@ -662,5 +798,181 @@ $('input[name=position]').click();
         fun setState(s: String?){
             this@MainActivity.state=s
         }
+
     }
+    class MyJavascriptInterface(private val context: Context) {
+        fun geoformat(t:String):String{
+            return "{\n" +
+                    "    \"type\": \"Feature\", \n" +
+                    "\"style\": {"+
+                    "\"__comment\": \"all SVG styles allowed\","+
+                    "\"fill\":\"red\"," +
+                    "\"stroke-color\":\"red\","+
+                    "\"width\":\"30\","+
+                    "\"fill-opacity\":0.4"+
+                    "},"+
+                    "    \"geometry\": {\n" +
+                    "        \"type\": \"MultiLineString\", \n" +
+                    "        \"coordinates\": ${t}" +
+                    "}}"
+        }
+        @JavascriptInterface
+        fun showToast(message: String) {
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+        @JavascriptInterface
+        fun getBoundaries(): String {
+            val fu=File(context.filesDir,"boundaries.json")
+            if(!fu.exists()){
+                return "{}"
+            }
+            val inputStream: InputStream = fu.inputStream()
+            val inputString = inputStream.bufferedReader().use { it.readText() }
+            return  inputString
+        }
+        @JavascriptInterface
+        fun getBoundaryPolygon(polygon:String, boundary:String):String{
+            val fu=File(context.filesDir, "boundaries_${boundary}.gpkg")
+            if(!fu.exists()){
+                return "{}"
+            }
+            val manager= GeoPackageFactory.getManager(context)
+            try {
+                manager.importGeoPackage(fu, true)
+            }catch(e:Exception){
+                return "{}"
+            }
+            var res=JSONObject()
+            res.put("count",0)
+            res.put("results", JSONArray())
+            val geopackage=manager.open("boundaries_${boundary}")
+            val features=geopackage.featureTables
+            val ft= features[0]
+            val featuredao=geopackage.getFeatureDao(ft)
+            val cursor=featuredao.query("uuid='${polygon}'")
+
+            val geo=JSONArray()
+            for (row in cursor){
+                val d=JSONObject()
+                d.put("id", polygon)
+                d.put("type", "Feature")
+                res=d
+                for (g in (row.geometry.geometry as MultiPolygon).geometries) {
+                    for (p in g.rings) {
+                        val ring=JSONArray()
+                        for(p in p.points){
+                            val c=JSONArray()
+                            c.put(p.x)
+                            c.put(p.y)
+                            ring.put(c)
+                        }
+                        geo.put(ring)
+                    }
+                }
+            }
+            cursor.close()
+            val g=JSONObject()
+            g.put("coordinates", geo)
+            g.put("type", "Polygon")
+            res.put("geometry",g)
+            return res.toString()
+        }
+        @JavascriptInterface
+        fun getBoundaryPolygons(boundary:String):String{
+            val fu=File(context.filesDir, "boundaries_${boundary}.gpkg")
+            if(!fu.exists()){
+                return "{}"
+            }
+            val manager= GeoPackageFactory.getManager(context)
+            try {
+                manager.importGeoPackage(fu, true)
+            }catch(e:Exception){
+                return "{}"
+            }
+            var res=JSONObject()
+            res.put("count",0)
+            res.put("results", JSONArray())
+            val geopackage=manager.open("boundaries_${boundary}")
+            val features=geopackage.featureTables
+            val ft= features[0]
+            val featuredao=geopackage.getFeatureDao(ft)
+            val cursor=featuredao.query(ArrayList<String>(featuredao.columnNames.clone().filter { g->g!="geom" }).toTypedArray())
+            for (row in cursor){
+                val d=JSONObject()
+                for(t in row.columnNames) {
+                    d.put(t, row.getValue(t))
+                }
+                val r=JSONObject()
+                r.put("data", d)
+                r.put("uuid", d.getString("uuid"))
+                val other_cursor=featuredao.query("uuid='${d.getString("uuid")}'")
+                for(other_row in other_cursor){
+                    val b=other_row.geometry.boundingBox
+                    val min=JSONObject()
+                    val max=JSONObject()
+                    min.put("lat", b.minLatitude)
+                    min.put("lat", b.minLatitude)
+                    min.put("lon", b.minLongitude)
+                    max.put("lat", b.maxLatitude)
+                    max.put("lon", b.maxLongitude)
+                    r.put("bbox", JSONArray(listOf(min, max)))
+                }
+                other_cursor.close()
+                res.getJSONArray("results").put(r)
+                res.put("count",res.getInt("count")+1)
+            }
+            cursor.close()
+            return res.toString()
+        }
+        @JavascriptInterface
+        fun getLocalRoads(parameters:String): String {
+            val params=JSONObject(parameters)
+            val manager= GeoPackageFactory.getManager(context)
+            try {
+                manager.importGeoPackage(File(context.filesDir, "roads.gpkg"), true)
+            }catch(e:Exception){
+                return "[]"
+            }
+            val geopackage=manager.open("roads")
+            val features=geopackage.featureTables
+            val ft= features[0]
+            val featuredao=geopackage.getFeatureDao(ft)
+            val indexer= FeatureIndexManager(context, geopackage,ft)
+            indexer.indexLocation=FeatureIndexType.GEOPACKAGE
+            val p=params.getJSONArray("bounds")
+            val results=indexer.query(BoundingBox(p.getDouble(1),p.getDouble(0),p.getDouble(3), p.getDouble(2)))
+            val roadmap= ArrayList<Any>()
+            var n=0
+            for (r in results){
+                for (g in (r.geometry.geometry as MultiLineString).geometries) {
+                    val roadsegment = ArrayList<Any>()
+                    for (p in g.points) {
+                        roadsegment.add(listOf(p.x, p.y))
+                    }
+                    roadmap.add(roadsegment)
+                    n++
+                    if (n>5000){
+                        return geoformat(roadmap.toString())
+                    }
+                }
+            }
+            return geoformat(roadmap.toString())
+        }
+    }
+    fun getBackend():String{
+        var sharedPref: SharedPreferences = this.getPreferences(Context.MODE_PRIVATE)
+        val b= sharedPref.getString("backend", getString(R.string.backend))?.replace(":8009",":4201")?.split("?")
+        var url="${b?.get(0)?.replace(Regex("\\/$"),"")}/"
+        if (b != null) {
+            if(b.count()>1) url="${url}?${b[1]}"
+        }
+        return url
+    }
+
+}
+
+
+sealed class Result<out R> {
+    data class Success<out T>(val data: T) : Result<T>()
+    data class Error(val exception: Exception) : Result<Nothing>()
 }
